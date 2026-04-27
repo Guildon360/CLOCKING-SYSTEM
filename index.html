@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Equinox Clocking System</title>
+
+  <style>
+    body {
+      font-family: Arial;
+      background: #00a67a;
+      color: white;
+      margin: 0;
+    }
+
+    .container {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      height: 100vh;
+    }
+
+    .card {
+      background: #111827;
+      padding: 30px;
+      border-radius: 15px;
+      text-align: center;
+      width: 320px;
+    }
+
+    input, button {
+      width: 100%;
+      padding: 10px;
+      margin-top: 10px;
+      border-radius: 8px;
+      border: none;
+    }
+
+    .in { background: #22c55e; color: white; }
+    .out { background: #ef4444; color: white; }
+    .admin { background: #3b82f6; color: white; }
+
+    table {
+      width: 90%;
+      margin: 20px auto;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      padding: 10px;
+      border-bottom: 1px solid #374151;
+      text-align: center;
+    }
+
+    footer {
+      text-align: center;
+      padding: 10px;
+      font-size: 12px;
+      color: #94a3b8;
+    }
+  </style>
+</head>
+
+<body>
+
+<!-- LOGIN -->
+<div class="container" id="loginPage">
+  <div class="card">
+    <h2>Equinox Gardens</h2>
+    <input type="password" id="pin" placeholder="Enter PIN">
+    <button onclick="login()">Login</button>
+  </div>
+</div>
+
+<!-- CLOCK -->
+<div class="container" id="clockPage" style="display:none;">
+  <div class="card">
+    <h3 id="welcome"></h3>
+    <button class="in" onclick="clockIn()">CLOCK IN</button>
+    <button class="out" onclick="clockOut()">CLOCK OUT</button>
+    <button class="admin" style="display:none;" onclick="openAdmin()">Admin Dashboard</button>
+  </div>
+</div>
+
+<!-- ADMIN -->
+<div id="adminPage" style="display:none;">
+  <h2 style="text-align:center;">Admin Dashboard</h2>
+
+  <table>
+    <thead>
+      <tr>
+        <th>Name</th>
+        <th>Clock In</th>
+        <th>Clock Out</th>
+      </tr>
+    </thead>
+    <tbody id="tableBody"></tbody>
+  </table>
+
+  <div style="text-align:center;">
+    <button onclick="back()">Back</button>
+
+    <button onclick="clearAttendance()" 
+      style="background:red;color:white;padding:10px;border:none;border-radius:8px;margin-top:10px;">
+      Clear All Attendance
+    </button>
+  </div>
+</div>
+
+<footer>Developed by Guildon360</footer>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-app.js";
+  import {
+    getFirestore,
+    collection,
+    addDoc,
+    getDocs,
+    query,
+    where,
+    updateDoc,
+    doc,
+    serverTimestamp,
+    deleteDoc
+  } from "https://www.gstatic.com/firebasejs/10.12.2/firebase-firestore.js";
+
+  const firebaseConfig = {
+    apiKey: "AIzaSyDVQakf87RbjqesnoXQ6TYV7Py_30aUtf4",
+    authDomain: "equinox-clocking-system.firebaseapp.com",
+    projectId: "equinox-clocking-system",
+    storageBucket: "equinox-clocking-system.firebasestorage.app",
+    messagingSenderId: "502194643869",
+    appId: "1:502194643869:web:5a20fbb43db4d936e48574"
+  };
+
+  const app = initializeApp(firebaseConfig);
+  const db = getFirestore(app);
+
+  let user = null;
+
+  // ================= LOGIN =================
+  window.login = async function () {
+    const pin = document.getElementById("pin").value;
+
+    const q = query(collection(db, "staff"), where("pin", "==", pin));
+    const snap = await getDocs(q);
+
+    if (snap.empty) {
+      alert("Invalid PIN");
+      return;
+    }
+
+    const data = snap.docs[0];
+    user = { id: data.id, ...data.data() };
+
+    document.getElementById("welcome").innerText =
+      "Welcome " + user.name;
+
+    document.getElementById("loginPage").style.display = "none";
+    document.getElementById("clockPage").style.display = "flex";
+
+    const adminBtn = document.querySelector(".admin");
+    adminBtn.style.display = "none";
+
+    if (user.role === "admin") {
+      adminBtn.style.display = "block";
+    }
+  };
+
+  // ================= CLOCK IN =================
+  window.clockIn = async function () {
+    const q = query(
+      collection(db, "attendance"),
+      where("staffId", "==", user.id),
+      where("clockOut", "==", null)
+    );
+
+    const snap = await getDocs(q);
+
+    if (!snap.empty) {
+      alert("You are already clocked in!");
+      return;
+    }
+
+    await addDoc(collection(db, "attendance"), {
+      staffId: user.id,
+      name: user.name,
+      clockIn: serverTimestamp(),
+      clockOut: null
+    });
+
+    alert("Clocked In");
+    setTimeout(resetSystem, 2000);
+  };
+
+  // ================= CLOCK OUT =================
+  window.clockOut = async function () {
+    const q = query(
+      collection(db, "attendance"),
+      where("staffId", "==", user.id),
+      where("clockOut", "==", null)
+    );
+
+    const snap = await getDocs(q);
+
+    if (snap.empty) {
+      alert("You are not clocked in!");
+      return;
+    }
+
+    const docRef = snap.docs[0];
+
+    await updateDoc(doc(db, "attendance", docRef.id), {
+      clockOut: serverTimestamp()
+    });
+
+    alert("Clocked Out");
+    setTimeout(resetSystem, 2000);
+  };
+
+  // ================= HOURS CALC =================
+  function calculateHours(clockIn, clockOut) {
+    if (!clockIn || !clockOut) return 0;
+
+    const inTime = clockIn.toDate();
+    const outTime = clockOut.toDate();
+
+    return (outTime - inTime) / (1000 * 60 * 60);
+  }
+
+  // ================= ADMIN =================
+  window.openAdmin = async function () {
+    document.getElementById("clockPage").style.display = "none";
+    document.getElementById("adminPage").style.display = "block";
+
+    const snap = await getDocs(collection(db, "attendance"));
+    const table = document.getElementById("tableBody");
+    table.innerHTML = "";
+
+    let summary = {};
+
+    snap.forEach(d => {
+      const data = d.data();
+
+      const inTime = data.clockIn
+        ? data.clockIn.toDate().toLocaleString()
+        : "-";
+
+      const outTime = data.clockOut
+        ? data.clockOut.toDate().toLocaleString()
+        : "-";
+
+      const hours = calculateHours(data.clockIn, data.clockOut);
+
+      if (!summary[data.name]) summary[data.name] = 0;
+      summary[data.name] += hours;
+
+      table.innerHTML += `
+        <tr>
+          <td>${data.name}</td>
+          <td>${inTime}</td>
+          <td>${outTime}</td>
+        </tr>
+      `;
+    });
+
+    let summaryHTML = "<h3 style='text-align:center;'>Weekly Summary</h3>";
+
+    for (let name in summary) {
+      summaryHTML += `<p style="text-align:center;"><b>${name}</b>: ${summary[name].toFixed(2)} hrs</p>`;
+    }
+
+    document.getElementById("adminPage").innerHTML += summaryHTML;
+  };
+
+  // ================= CLEAR DATA =================
+  window.clearAttendance = async function () {
+    if (!confirm("Delete all attendance?")) return;
+
+    const snap = await getDocs(collection(db, "attendance"));
+
+    snap.forEach(async (d) => {
+      await deleteDoc(doc(db, "attendance", d.id));
+    });
+
+    alert("All attendance cleared");
+  };
+
+  // ================= BACK =================
+  window.back = function () {
+    document.getElementById("adminPage").style.display = "none";
+    document.getElementById("clockPage").style.display = "flex";
+  };
+
+  // ================= RESET SYSTEM =================
+  function resetSystem() {
+    user = null;
+    document.getElementById("pin").value = "";
+    document.getElementById("loginPage").style.display = "flex";
+    document.getElementById("clockPage").style.display = "none";
+    document.getElementById("adminPage").style.display = "none";
+  }
+
+</script>
+
+</body>
+</html>
